@@ -101,7 +101,7 @@ def format_message_text(msg: dict) -> str:
         if url:
             lines.append(f"     {_truncate_url(url)}")
         if description:
-            desc_short = description[:150] + "..." if len(description) > 150 else description
+            desc_short = description[:200] + "..." if len(description) > 200 else description
             desc_short = desc_short.replace("\n", " ")
             lines.append(f"     {desc_short}")
 
@@ -311,11 +311,9 @@ def _format_size(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
 
-def _truncate_url(url: str, max_len: int = 120) -> str:
-    """Truncate a URL for display. Removes CDN query params that bloat output."""
-    # Discord CDN URLs have long query params (ex=, is=, hm=) — strip them
+def _truncate_url(url: str) -> str:
+    """Clean a URL for display. Strips ephemeral CDN auth params (they expire in hours)."""
+    # Discord CDN URLs have expiring auth query params (ex=, is=, hm=) — noise, not data
     if "cdn.discordapp.com" in url or "media.discordapp.net" in url:
         url = url.split("?")[0]
-    if len(url) > max_len:
-        return url[:max_len] + "..."
     return url
