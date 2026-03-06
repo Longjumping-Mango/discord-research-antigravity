@@ -89,6 +89,21 @@ python <INSTALL_DIR>/src/discord_cli.py extract-links --channel <CHANNEL_ID> --l
 
 All commands support `--json` for machine-readable output.
 
+### Output to File (Windows Encoding Safety)
+
+On Windows, **ALWAYS** prefer `--output-file` over PowerShell `>` redirection to avoid UTF-16LE encoding corruption:
+
+```bash
+# ✅ CORRECT — Python writes UTF-8 directly to file
+python <INSTALL_DIR>/src/discord_cli.py --output-file results.txt search --server <ID> --query "test"
+
+# ❌ WRONG — PowerShell converts to UTF-16LE, breaks view_file and text tools
+python <INSTALL_DIR>/src/discord_cli.py search --server <ID> --query "test" > results.txt
+```
+
+**Note:** `--output-file` is a global flag that goes BEFORE the subcommand. It works with any command.
+After writing, read the file with `view_file` or `mcp_filesystem_read_text_file`.
+
 ---
 
 ## Deep Research Protocol
@@ -112,6 +127,43 @@ When conducting deep research on a Discord topic, follow this strategy:
 2. Search each keyword variant in the most relevant channels/servers.
 3. **Expand keywords from results** — if search results contain new relevant terms not in your initial set, add them and search again.
 4. **Stop at 70% saturation** — when new searches produce mostly previously-seen results.
+
+### Semantic Expansion Protocol (MANDATORY for all technical searches)
+
+When searching for ANY technical topic (software versions, hardware models, firmware, libraries, tools, configurations, error codes), apply these 4 layers IN ORDER:
+
+**Layer 1 — Exact Match:**
+Search the literal terms provided by the user.
+Example: `"KWCN54WW"`, `"FFmpeg 7.0"`, `"RTX 4080 undervolt"`
+
+**Layer 2 — Contextual Abstraction:**
+Abstract specific identifiers to broader semantic categories:
+- Version numbers → temporal: `"latest"`, `"newest"`, `"recent update"`, month/year
+- Version numbers → generational: `"gen 8"`, `"13th gen"`, `"Raptor Lake"`
+- Model numbers → product names: `"legion pro 7"`, `"RTX 4080"`
+- Feature names → functional: `"advanced bios"`, `"undervolt"`, `"unlock"`
+- Error codes → symptoms: `"boot loop"`, `"crash"`, `"won't start"`
+- Library versions → release names: `"stable"`, `"nightly"`, `"LTS"`
+
+**Layer 3 — Community Jargon Expansion:**
+Discord communities use informal language. Expand with:
+- Abbreviations: `"UV"` for undervolt, `"OC"` for overclock, `"XMP"`
+- Slang: `"bricked"`, `"modded bios"`, `"tweaked"`
+- Tool/project names: `"ThrottleStop"`, `"SREP"`, `"HWiNFO"`
+- People: known community experts (discovered from results)
+
+**Layer 4 — Temporal + Iterative:**
+- Re-run Layer 2-3 keywords with `--after-date` (last 3-6 months)
+- Read returned results → extract NEW terms from message content
+- Search with newly discovered terms
+- STOP at 70% saturation (mostly repeated results)
+
+**CRITICAL RULES:**
+- ❌ NEVER declare "nothing found" after only Layer 1
+- ❌ NEVER skip Layers 2-4 for technical topics
+- ✅ ALWAYS attempt at least Layers 1+2 before reporting
+- ✅ If Layer 1 returns 0 results, Layers 2-4 are MANDATORY
+- ✅ Apply to ALL search tools (Discord, web, GitHub), not just Discord
 
 ### Phase 3: Deep Investigation
 

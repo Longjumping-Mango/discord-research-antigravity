@@ -427,7 +427,7 @@ async def cmd_download_attachments(args):
             if result["success"]:
                 if result["skipped"]:
                     skipped += 1
-                    print_error(f"    ⏭ Already exists, skipped")
+                    print_error("    ⏭ Already exists, skipped")
                 else:
                     downloaded += 1
                     total_bytes += result["size"]
@@ -446,13 +446,13 @@ async def cmd_download_attachments(args):
             for r in results:
                 print_output(json.dumps(r, ensure_ascii=False))
         else:
-            print_output(f"\n=== Download Summary ===")
+            print_output("\n=== Download Summary ===")
             print_output(f"  Output directory: {os.path.abspath(output_dir)}")
             print_output(f"  Total attachments found: {len(attachments)}")
             print_output(f"  Downloaded: {downloaded} ({total_bytes / 1024:.1f} KB)")
             print_output(f"  Skipped (existing): {skipped}")
             print_output(f"  Failed: {failed}")
-            print_output(f"=== End ===")
+            print_output("=== End ===")
 
     finally:
         await client.close()
@@ -465,9 +465,14 @@ def build_parser() -> argparse.ArgumentParser:
         description="Discord Research Tool — Browse, search, and analyze Discord messages",
     )
 
-    # Global --token flag
+    # Global flags
     parser.add_argument("--token", default=None,
                         help="Discord user token (overrides DISCORD_USER_TOKEN env var)")
+    parser.add_argument(
+        "--output-file", default=None, metavar="PATH",
+        help="Write all stdout output to this file (UTF-8) instead of console. "
+             "Use this on Windows to avoid PowerShell UTF-16LE encoding issues.",
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -582,6 +587,20 @@ def main():
         print_error(f"Unknown command: {args.command}")
         sys.exit(1)
 
+    # If --output-file is specified, redirect stdout to UTF-8 file
+    # This bypasses PowerShell's UTF-16LE encoding when using > operator
+    original_stdout = None
+    output_fh = None
+    if args.output_file:
+        try:
+            output_fh = open(args.output_file, "w", encoding="utf-8")
+            original_stdout = sys.stdout
+            sys.stdout = output_fh
+            print_error(f"  [Output] Writing results to {args.output_file}")
+        except OSError as e:
+            print_error(f"ERROR: Cannot open output file: {e}")
+            sys.exit(1)
+
     try:
         asyncio.run(handler(args))
     except KeyboardInterrupt:
@@ -590,6 +609,11 @@ def main():
     except Exception as e:
         print_error(f"ERROR: {e}")
         sys.exit(1)
+    finally:
+        if output_fh:
+            output_fh.close()
+        if original_stdout:
+            sys.stdout = original_stdout
 
 
 if __name__ == "__main__":
