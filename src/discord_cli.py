@@ -1,6 +1,6 @@
 """
 Discord Research Tool — CLI Entry Point
-10 subcommands for browsing, searching, and analyzing Discord messages.
+11 subcommands for browsing, searching, and analyzing Discord messages.
 Usage: python discord_cli.py <command> [options]
 """
 
@@ -336,6 +336,128 @@ async def cmd_extract_links(args):
         await client.close()
 
 
+async def cmd_download_attachments(args):
+    """Download file attachments from messages in a channel."""
+    import os
+
+    channel_id = args.channel
+    output_dir = args.output
+    limit = args.limit
+    max_size_mb = args.max_size
+    type_filter = None
+    if args.types:
+        type_filter = set(ext.strip().lower().lstrip(".") for ext in args.types.split(","))
+
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+
+    client = DiscordClient()
+    try:
+        # Fetch messages
+        print_error(f"  [Download] Scanning {limit} messages in channel {channel_id}...")
+        messages = await client.get_messages(channel_id, limit=limit)
+
+        if not messages:
+            print_output("No messages found.")
+            return
+
+        # Collect all attachments
+        attachments = []
+        for msg in messages:
+            for att in msg.get("attachments", []):
+                filename = att.get("filename", "unknown")
+                url = att.get("url", "")
+                size = att.get("size", 0)
+                msg_id = msg.get("id", "0")
+
+                if not url:
+                    continue
+
+                # Apply type filter
+                if type_filter:
+                    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+                    if ext not in type_filter:
+                        continue
+
+                # Apply size filter (max_size is in MB)
+                if max_size_mb and size > 0:
+                    if size > max_size_mb * 1024 * 1024:
+                        print_error(f"  [Skip] {filename} ({size / (1024*1024):.1f} MB) exceeds --max-size {max_size_mb} MB")
+                        continue
+
+                # Build output path with message_id prefix to avoid collisions
+                safe_filename = f"{msg_id}_{filename}"
+                output_path = os.path.join(output_dir, safe_filename)
+
+                attachments.append({
+                    "filename": filename,
+                    "safe_filename": safe_filename,
+                    "url": url,
+                    "size": size,
+                    "message_id": msg_id,
+                    "output_path": output_path,
+                })
+
+        if not attachments:
+            print_output("No attachments found matching filters.")
+            return
+
+        print_error(f"  [Download] Found {len(attachments)} attachments to download")
+
+        # Download each attachment
+        downloaded = 0
+        skipped = 0
+        failed = 0
+        total_bytes = 0
+        results = []
+
+        for i, att in enumerate(attachments, 1):
+            print_error(f"  [{i}/{len(attachments)}] {att['filename']} ({att['size'] / 1024:.1f} KB)...")
+
+            result = await client.download_file(
+                url=att["url"],
+                output_path=att["output_path"],
+                expected_size=att["size"],
+            )
+
+            result["original_filename"] = att["filename"]
+            result["message_id"] = att["message_id"]
+            results.append(result)
+
+            if result["success"]:
+                if result["skipped"]:
+                    skipped += 1
+                    print_error(f"    ⏭ Already exists, skipped")
+                else:
+                    downloaded += 1
+                    total_bytes += result["size"]
+                    print_error(f"    ✅ Downloaded ({result['size'] / 1024:.1f} KB)")
+            else:
+                failed += 1
+                print_error(f"    ❌ Failed: {result['error']}")
+
+            # Small delay between downloads to be respectful
+            if i < len(attachments):
+                import asyncio
+                await asyncio.sleep(0.1)
+
+        # Output summary
+        if args.json:
+            for r in results:
+                print_output(json.dumps(r, ensure_ascii=False))
+        else:
+            print_output(f"\n=== Download Summary ===")
+            print_output(f"  Output directory: {os.path.abspath(output_dir)}")
+            print_output(f"  Total attachments found: {len(attachments)}")
+            print_output(f"  Downloaded: {downloaded} ({total_bytes / 1024:.1f} KB)")
+            print_output(f"  Skipped (existing): {skipped}")
+            print_output(f"  Failed: {failed}")
+            print_output(f"=== End ===")
+
+    finally:
+        await client.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -416,6 +538,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=100, help="Max messages to scan (default: 100)")
     p.add_argument("--json", action="store_true")
 
+    # download-attachments
+    p = subparsers.add_parser("download-attachments", help="Download file attachments from messages")
+    p.add_argument("--channel", required=True, help="Channel ID")
+    p.add_argument("--output", required=True, help="Output directory for downloaded files")
+    p.add_argument("--limit", type=int, default=50, help="Max messages to scan (default: 50)")
+    p.add_argument("--types", default=None, help="Filter by file extensions, comma-separated (e.g., png,jpg,pdf)")
+    p.add_argument("--max-size", type=float, default=None, help="Skip files larger than N MB")
+    p.add_argument("--json", action="store_true")
+
     return parser
 
 
@@ -430,6 +561,7 @@ COMMAND_MAP = {
     "get-pins": cmd_get_pins,
     "get-threads": cmd_get_threads,
     "extract-links": cmd_extract_links,
+    "download-attachments": cmd_download_attachments,
 }
 
 

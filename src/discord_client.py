@@ -475,6 +475,86 @@ class DiscordClient:
 
         return all_messages[:max_results]
 
+    # ── File Downloads ──
+
+    async def download_file(self, url: str, output_path: str,
+                            expected_size: int = 0) -> dict:
+        """Download a file from a URL (typically Discord CDN) to local path.
+
+        Returns dict with: success, path, size, skipped, error
+        """
+        import os
+
+        # Check if file already exists with matching size
+        if os.path.exists(output_path) and expected_size > 0:
+            existing_size = os.path.getsize(output_path)
+            if existing_size == expected_size:
+                return {
+                    "success": True,
+                    "path": output_path,
+                    "size": existing_size,
+                    "skipped": True,
+                    "error": None,
+                }
+
+        await self._ensure_initialized()
+
+        try:
+            # Use a separate client for CDN downloads (longer timeout, no API headers)
+            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as dl_client:
+                response = await dl_client.get(url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                })
+
+                if response.status_code == 200:
+                    # Ensure directory exists
+                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+                    with open(output_path, "wb") as f:
+                        f.write(response.content)
+
+                    file_size = os.path.getsize(output_path)
+                    return {
+                        "success": True,
+                        "path": output_path,
+                        "size": file_size,
+                        "skipped": False,
+                        "error": None,
+                    }
+                elif response.status_code in (403, 404):
+                    return {
+                        "success": False,
+                        "path": output_path,
+                        "size": 0,
+                        "skipped": False,
+                        "error": f"CDN returned {response.status_code} (link may be expired)",
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "path": output_path,
+                        "size": 0,
+                        "skipped": False,
+                        "error": f"HTTP {response.status_code}",
+                    }
+
+        except httpx.TimeoutException:
+            return {
+                "success": False,
+                "path": output_path,
+                "size": 0,
+                "skipped": False,
+                "error": "Download timed out",
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "path": output_path,
+                "size": 0,
+                "skipped": False,
+                "error": str(e),
+            }
+
     # ── Reply Chain ──
 
     async def follow_reply_chain(self, channel_id: str, message_id: str,
