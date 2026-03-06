@@ -3,10 +3,24 @@ Discord Research Tool — Utility Functions
 Snowflake/date conversion, message formatting, output helpers.
 """
 
+import io
 import json
 import sys
 from datetime import datetime, timezone
 from typing import Any, Optional
+
+# ── Fix Windows encoding ──
+# Windows console defaults to cp1252/charmap which can't handle Discord's
+# unicode characters (Japanese, emoji, etc.). Force UTF-8 on stdout/stderr.
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    else:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    else:
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 # Discord epoch: January 1, 2015 00:00:00 UTC (in milliseconds)
 DISCORD_EPOCH = 1420070400000
@@ -74,7 +88,7 @@ def format_message_text(msg: dict) -> str:
         url = att.get("url", "")
         lines.append(f"  📎 {filename} ({size_str})")
         if url:
-            lines.append(f"     {url}")
+            lines.append(f"     {_truncate_url(url)}")
 
     # Embeds
     embeds = msg.get("embeds", [])
@@ -85,10 +99,10 @@ def format_message_text(msg: dict) -> str:
         if title:
             lines.append(f"  📦 Embed: {title}")
         if url:
-            lines.append(f"     {url}")
+            lines.append(f"     {_truncate_url(url)}")
         if description:
-            # Truncate long descriptions
-            desc_short = description[:200] + "..." if len(description) > 200 else description
+            desc_short = description[:150] + "..." if len(description) > 150 else description
+            desc_short = desc_short.replace("\n", " ")
             lines.append(f"     {desc_short}")
 
     # Reply reference
@@ -295,3 +309,13 @@ def _format_size(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024):.1f} MB"
     else:
         return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+
+def _truncate_url(url: str, max_len: int = 120) -> str:
+    """Truncate a URL for display. Removes CDN query params that bloat output."""
+    # Discord CDN URLs have long query params (ex=, is=, hm=) — strip them
+    if "cdn.discordapp.com" in url or "media.discordapp.net" in url:
+        url = url.split("?")[0]
+    if len(url) > max_len:
+        return url[:max_len] + "..."
+    return url
